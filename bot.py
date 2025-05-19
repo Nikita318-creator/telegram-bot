@@ -51,17 +51,19 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await query.edit_message_text("Что-то пошло не так 😕")
 
-# Синхронный запрос к Gemini API через requests
-def query_gemini_api_sync(prompt: str, api_key: str) -> str:
+# Синхронный запрос к Gemini API через requests с OAuth-токеном
+def query_gemini_api_sync(prompt: str, oauth_token: str) -> str:
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
     headers = {
-    "x-goog-api-key": api_key,
-    "Content-Type": "application/json"
+        "Authorization": f"Bearer {oauth_token}",
+        "Content-Type": "application/json"
     }
     json_data = {
         "prompt": {
             "text": prompt
-        }
+        },
+        "temperature": 0.7,
+        "maxOutputTokens": 256
     }
 
     try:
@@ -74,19 +76,15 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
-
     user_text = update.message.text
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        await update.message.reply_text("API ключ Gemini не настроен.")
+    oauth_token = os.getenv("GEMINI_OAUTH_TOKEN")
+    if not oauth_token:
+        await update.message.reply_text("OAuth токен Gemini не настроен в переменных окружения.")
         return
 
-    await update.message.chat.send_action(action="typing")  # Показываем статус "печатает"
+    await update.message.chat.send_action(action="typing")
 
-    # Запускаем sync функцию в отдельном потоке, не блокируя основной цикл
-    response = await asyncio.to_thread(query_gemini_api_sync, user_text, api_key)
-
+    response = await asyncio.to_thread(query_gemini_api_sync, user_text, oauth_token)
     await update.message.reply_text(response)
 
 def main():
