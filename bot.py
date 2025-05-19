@@ -53,24 +53,32 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 
 # Синхронный запрос к Gemini API через requests
 def query_gemini_api_sync(prompt: str, api_key: str) -> str:
-    url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
     headers = {
         "x-goog-api-key": api_key,
         "Content-Type": "application/json"
     }
     json_data = {
-        "prompt": {
-            "text": prompt
-        },
-        "temperature": 0.7,
-        "maxOutputTokens": 256
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 256
+        }
     }
 
     try:
         resp = requests.post(url, headers=headers, json=json_data, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-        return data.get("candidates", [{}])[0].get("output", "Нет ответа от Gemini")
+        return data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Нет ответа от Gemini")
     except Exception as e:
         return f"Ошибка при запросе к Gemini API: {e}"
 
