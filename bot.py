@@ -51,12 +51,12 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await query.edit_message_text("Что-то пошло не так 😕")
 
-# Синхронный запрос к Gemini API через requests с OAuth-токеном
-def query_gemini_api_sync(prompt: str, oauth_token: str) -> str:
+# Синхронный запрос к Gemini API через requests
+def query_gemini_api_sync(prompt: str, api_key: str) -> str:
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
     headers = {
-        "Authorization": f"Bearer {oauth_token}",
-        "Content-Type": "application/json"
+    "x-goog-api-key": api_key,
+    "Content-Type": "application/json"
     }
     json_data = {
         "prompt": {
@@ -76,6 +76,8 @@ def query_gemini_api_sync(prompt: str, oauth_token: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
+
     user_text = update.message.text
     oauth_token = os.getenv("GEMINI_OAUTH_TOKEN")
     if not oauth_token:
@@ -103,4 +105,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
