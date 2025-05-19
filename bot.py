@@ -74,6 +74,8 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Функция handle_user_message вызвана")
+
     user_text = update.message.text
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -97,8 +99,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Help$"), handle_help_button))
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("^Help$"), handle_user_message))
-
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"),handle_user_message))
+    
     app.run_polling()
 
 if __name__ == "__main__":
