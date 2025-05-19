@@ -76,17 +76,17 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
+     await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
 
     user_text = update.message.text
-    oauth_token = os.getenv("GEMINI_OAUTH_TOKEN")
-    if not oauth_token:
-        await update.message.reply_text("OAuth токен Gemini не настроен в переменных окружения.")
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        await update.message.reply_text("api_key Gemini не настроен в переменных окружения.")
         return
 
     await update.message.chat.send_action(action="typing")
 
-    response = await asyncio.to_thread(query_gemini_api_sync, user_text, oauth_token)
+    response = await asyncio.to_thread(query_gemini_api_sync, user_text, api_key)
     await update.message.reply_text(response)
 
 def main():
