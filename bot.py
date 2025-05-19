@@ -55,8 +55,8 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 def query_gemini_api_sync(prompt: str, api_key: str) -> str:
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
     headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
+    "x-goog-api-key": api_key,
+    "Content-Type": "application/json"
     }
     json_data = {
         "prompt": {
@@ -74,7 +74,7 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Функция handle_user_message вызвана")
+    # await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
 
     user_text = update.message.text
     api_key = os.getenv("GEMINI_API_KEY")
