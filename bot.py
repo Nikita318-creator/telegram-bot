@@ -66,15 +66,8 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
         "maxOutputTokens": 256
     }
 
-    await update.message.reply_text(
-        "Yo!", reply_markup=reply_markup
-    )
-    
-    resp = requests.post(url, headers=headers, json=json_data, timeout=10)
-    print("Status:", resp.status_code)
-    print("Response:", resp.text)
-
     try:
+        resp = requests.post(url, headers=headers, json=json_data, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         return data.get("candidates", [{}])[0].get("output", "Нет ответа от Gemini")
