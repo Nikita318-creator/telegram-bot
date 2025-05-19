@@ -55,8 +55,8 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 def query_gemini_api_sync(prompt: str, api_key: str) -> str:
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
     headers = {
-    "x-goog-api-key": api_key,
-    "Content-Type": "application/json"
+        "x-goog-api-key": api_key,
+        "Content-Type": "application/json"
     }
     json_data = {
         "prompt": {
@@ -68,6 +68,8 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
     try:
         resp = requests.post(url, headers=headers, json=json_data, timeout=10)
+        print("Status:", resp.status_code)
+        print("Response:", resp.text)
         resp.raise_for_status()
         data = resp.json()
         return data.get("candidates", [{}])[0].get("output", "Нет ответа от Gemini")
@@ -76,12 +78,10 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-     await update.message.reply_text("Функция handle_user_message вызвана") # распечатать что-то в мессадж
-
     user_text = update.message.text
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        await update.message.reply_text("api_key Gemini не настроен в переменных окружения.")
+        await update.message.reply_text("API ключ Gemini не настроен.")
         return
 
     await update.message.chat.send_action(action="typing")
@@ -99,7 +99,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Help$"), handle_help_button))
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"),handle_user_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"), handle_user_message))
     
     app.run_polling()
 
