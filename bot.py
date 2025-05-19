@@ -1,5 +1,6 @@
 import os
-import aiohttp
+import requests
+import asyncio
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -50,8 +51,8 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await query.edit_message_text("Что-то пошло не так 😕")
 
-# Запрос к Gemini API (пример)
-async def query_gemini_api(prompt: str, api_key: str) -> str:
+# Синхронный запрос к Gemini API через requests
+def query_gemini_api_sync(prompt: str, api_key: str) -> str:
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-lite:generateContent"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -64,17 +65,14 @@ async def query_gemini_api(prompt: str, api_key: str) -> str:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=json_data) as resp:
-                if resp.status != 200:
-                    return f"Ошибка API Gemini: {resp.status}"
-                data = await resp.json()
-                # В ответе ищем candidates[0].output
-                return data.get("candidates", [{}])[0].get("output", "Нет ответа от Gemini")
+        resp = requests.post(url, headers=headers, json=json_data, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("candidates", [{}])[0].get("output", "Нет ответа от Gemini")
     except Exception as e:
         return f"Ошибка при запросе к Gemini API: {e}"
 
-# Обработка любых текстовых сообщений (кроме Help) — ответ Gemini
+# Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     api_key = os.getenv("GEMINI_API_KEY")
@@ -84,7 +82,9 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.chat.send_action(action="typing")  # Показываем статус "печатает"
 
-    response = await query_gemini_api(user_text, api_key)
+    # Запускаем sync функцию в отдельном потоке, не блокируя основной цикл
+    response = await asyncio.to_thread(query_gemini_api_sync, user_text, api_key)
+
     await update.message.reply_text(response)
 
 def main():
