@@ -42,7 +42,7 @@ async def start_queue_processing(application: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Help"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    await update.message.reply_text("Yo! I'm alive.", reply_markup=reply_markup)
+    await update.message.reply_text("Yo! I'm alive. Hi", reply_markup=reply_markup)
 
 async def handle_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
