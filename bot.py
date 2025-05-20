@@ -2,7 +2,6 @@ import os
 import asyncio
 import time
 from collections import defaultdict
-import psutil
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
