@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+import logging
 from collections import defaultdict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -11,7 +12,13 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from model_manager import AIModelManager, AIModelType
+from model_manager import AIModelManager, AIModelType, TelegramLogHandler
+
+# Настройка логирования
+if os.getenv("DEBUG_TO_USER", "0") == "1":
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+else:
+    logging.basicConfig(filename='bot_analytics.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 ai_model_manager = AIModelManager()
 
@@ -26,7 +33,8 @@ async def process_api_queue(worker_id):
         try:
             print(f"[Worker {worker_id}] Processing request from {user_id}")
             start = time.time()
-            response = await ai_model_manager.query_api_async(user_text)
+            # Передаём update в query_api_async
+            response = await ai_model_manager.query_api_async(user_text, update)
             elapsed = time.time() - start
             print(f"[Worker {worker_id}] Response in {elapsed:.2f}s")
             await update.message.reply_text(response)
@@ -41,7 +49,7 @@ async def monitor_queue():
         await asyncio.sleep(10)
 
 async def start_queue_processing(application: ContextTypes.DEFAULT_TYPE):
-    # Запускаем один воркер, так как очередь не ограничена
+    # Запускаем один воркер
     asyncio.create_task(process_api_queue(0))
     asyncio.create_task(monitor_queue())
 
