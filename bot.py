@@ -31,7 +31,7 @@ async def process_api_queue():
     while True:
         user_id, user_text, update = await api_queue.get()
         try:
-            response = await ai_model_manager.query_api(user_text)
+            response = await asyncio.to_thread(ai_model_manager.query_api_sync, user_text)
             await update.message.reply_text(response)
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {str(e)}")
