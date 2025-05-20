@@ -111,7 +111,7 @@ class AIModelManager:
             if gemini_model:
                 self.current_model = gemini_model
                 logging.info(f"Переключились обратно на модель {self.current_model.name}")
-                switch_message = f"Переключились на модель: {self.current_model.name}\n"
+                switch_message = f"1 Переключились на модель: {self.current_model.name}\n"
             else:
                 switch_message = ""
         else:
@@ -146,8 +146,8 @@ class AIModelManager:
                     self.current_model = AIModelType.MISTRAL
                     self.model_limits[AIModelType.MISTRAL] = True
 
-                logging.info(f"Переключились на модель {self.current_model.name}")
-                switch_message = f"Переключились на модель: {self.current_model.name}\n"
+                logging.info(f"2 Переключились на модель {self.current_model.name}")
+                switch_message = f"3 Переключились на модель: {self.current_model.name}\n"
                 return switch_message + await self.query_api_async(user_message)
 
             elif e.response.status_code == 400:
@@ -158,7 +158,7 @@ class AIModelManager:
                 self.model_limits[AIModelType.MISTRAL] = True
                 if "reset_all" not in self.model_reset_tasks:
                     self.model_reset_tasks["reset_all"] = asyncio.create_task(self.reset_all_models())
-                switch_message = f"Переключились на модель: {self.current_model.name}\n"
+                switch_message = f"4 Переключились на модель: {self.current_model.name}\n"
                 return switch_message + await self.query_api_async(user_message)
 
             return switch_message + f"Ошибка API: {str(e)}"
