@@ -53,6 +53,9 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 
 # Синхронный запрос к Gemini API через requests
 def query_gemini_api_sync(prompt: str, api_key: str) -> str:
+    await update.message.reply_text(
+        "Yo! I'm alive.", reply_markup=reply_markup
+    )
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
     headers = {
         "x-goog-api-key": api_key,
