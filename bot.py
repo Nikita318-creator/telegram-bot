@@ -23,19 +23,25 @@ user_last_message_time = defaultdict(lambda: 0)
 
 # Очередь для обработки API-запросов
 api_queue = asyncio.Queue()
-MAX_CONCURRENT_API_CALLS = 5  # Максимум одновременных запросов к API
+MAX_CONCURRENT_API_CALLS = 5
+MAX_QUEUE_SIZE = 100
 
 async def process_api_queue():
     """Асинхронная функция для обработки очереди API-запросов"""
     while True:
         user_id, user_text, update = await api_queue.get()
         try:
-            response = await asyncio.to_thread(ai_model_manager.query_api_sync, user_text)
+            response = await ai_model_manager.query_api(user_text)
             await update.message.reply_text(response)
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {str(e)}")
         finally:
             api_queue.task_done()
+
+async def start_queue_processing(application: ContextTypes.DEFAULT_TYPE):
+    """Запускает задачи для обработки очереди после старта приложения"""
+    for _ in range(MAX_CONCURRENT_API_CALLS):
+        asyncio.create_task(process_api_queue())
 
 # Команда /start с кнопкой Help
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -101,9 +107,12 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("API ключи не настроены.")
         return
 
-    await update.message.chat.send_action(action="typing")
+    # Проверка размера очереди
+    if api_queue.qsize() > MAX_QUEUE_SIZE:
+        await update.message.reply_text("Бот перегружен! Попробуй позже.")
+        return
 
-    # Добавляем запрос в очередь
+    await update.message.chat.send_action(action="typing")
     await api_queue.put((user_id, user_text, update))
 
 def main():
@@ -119,9 +128,8 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"), handle_user_message))
 
-    # Запускаем обработку очереди
-    for _ in range(MAX_CONCURRENT_API_CALLS):
-        asyncio.create_task(process_api_queue())
+    # Регистрируем запуск задач обработки очереди после инициализации приложения
+    app.post_init = start_queue_processing
 
     app.run_polling()
 
