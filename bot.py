@@ -1,6 +1,7 @@
 import os
-import requests
 import asyncio
+import time
+from collections import defaultdict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -15,6 +16,26 @@ from model_manager import AIModelManager, AIModelType
 
 # Инициализация менеджера моделей
 ai_model_manager = AIModelManager()
+
+# Ограничение частоты сообщений (1 сообщение в секунду на пользователя)
+RATE_LIMIT_SECONDS = 1
+user_last_message_time = defaultdict(lambda: 0)
+
+# Очередь для обработки API-запросов
+api_queue = asyncio.Queue()
+MAX_CONCURRENT_API_CALLS = 5  # Максимум одновременных запросов к API
+
+async def process_api_queue():
+    """Асинхронная функция для обработки очереди API-запросов"""
+    while True:
+        user_id, user_text, update = await api_queue.get()
+        try:
+            response = await asyncio.to_thread(ai_model_manager.query_api_sync, user_text)
+            await update.message.reply_text(response)
+        except Exception as e:
+            await update.message.reply_text(f"Ошибка: {str(e)}")
+        finally:
+            api_queue.task_done()
 
 # Команда /start с кнопкой Help
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -46,7 +67,6 @@ async def handle_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-
     await update.message.reply_text(
         "Выбери, что хочешь узнать 👇", reply_markup=reply_markup
     )
@@ -55,7 +75,6 @@ async def handle_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
     if query.data == "change_model":
         await query.edit_message_text("🔄 Здесь будет выбор модели: Gemini / Mistral / Pro (ещё не подключено)")
     elif query.data == "other_bots":
@@ -67,15 +86,25 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 
 # Асинхронный хендлер сообщений
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
     user_text = update.message.text
+    current_time = time.time()
+
+    # Проверка rate limit
+    if current_time - user_last_message_time[user_id] < RATE_LIMIT_SECONDS:
+        await update.message.reply_text("Слишком много сообщений! Подожди секунду.")
+        return
+
+    user_last_message_time[user_id] = current_time
+
     if not any(ai_model_manager.get_api_key(model) for model in ai_model_manager.model_limits):
         await update.message.reply_text("API ключи не настроены.")
         return
 
     await update.message.chat.send_action(action="typing")
 
-    response = await asyncio.to_thread(ai_model_manager.query_api_sync, user_text)
-    await update.message.reply_text(response)
+    # Добавляем запрос в очередь
+    await api_queue.put((user_id, user_text, update))
 
 def main():
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -85,11 +114,15 @@ def main():
     app = ApplicationBuilder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("models", models))  # Регистрация команды /models
+    app.add_handler(CommandHandler("models", models))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Help$"), handle_help_button))
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"), handle_user_message))
-    
+
+    # Запускаем обработку очереди
+    for _ in range(MAX_CONCURRENT_API_CALLS):
+        asyncio.create_task(process_api_queue())
+
     app.run_polling()
 
 if __name__ == "__main__":
