@@ -29,7 +29,7 @@ async def process_api_queue(worker_id):
         try:
             print(f"[Worker {worker_id}] Processing request from {user_id}")
             start = time.time()
-            response = await ai_model_manager.query_api(user_text)  # ← async вариант
+            response = await ai_model_manager.query_api_async(user_text)  # ← async вариант
             elapsed = time.time() - start
             print(f"[Worker {worker_id}] Response in {elapsed:.2f}s")
             await update.message.reply_text(response)
