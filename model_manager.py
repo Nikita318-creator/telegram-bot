@@ -1,33 +1,12 @@
 import os
 import asyncio
 import logging
-import time
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict
 import httpx
-from telegram import Update
-
-# Кастомный обработчик логов для отправки в Telegram
-class TelegramLogHandler(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.update = None
-
-    def set_update(self, update: Optional[Update]):
-        self.update = update
-
-    def emit(self, record):
-        if self.update and os.getenv("DEBUG_TO_USER", "0") == "1":
-            log_message = self.format(record)
-            # Отправляем лог пользователю асинхронно
-            asyncio.create_task(self.update.message.reply_text(log_message))
 
 # Настройка логирования
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG if os.getenv("DEBUG_TO_USER", "0") == "1" else logging.INFO)
-telegram_handler = TelegramLogHandler()
-telegram_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(telegram_handler)
+logging.basicConfig(filename='bot_analytics.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Перечисление моделей (порядок важен для перебора)
 class AIModelType(Enum):
@@ -70,8 +49,7 @@ class AIModelManager:
             for model in AIModelType
         }
         self.model_reset_delays = {model: 60.0 for model in AIModelType}
-        self.model_reset_tasks = {}
-        self.current_update = None  # Храним текущий update для логов
+        self.model_reset_tasks = {}  # Для отслеживания задач сброса
 
     def get_api_key(self, model: AIModelType) -> str:
         return self.api_keys.get(model, "")
@@ -104,7 +82,7 @@ class AIModelManager:
         self.model_limits[model] = True
         elapsed = time.time() - start_time
         logging.info(f"Лимит для модели {model.name} сброшен через {elapsed:.2f} секунд")
-        self.model_reset_tasks.pop(model, None)
+        self.model_reset_tasks.pop(model, None)  # Удаляем задачу после выполнения
 
     async def reset_all_models(self):
         start_time = time.time()
@@ -114,7 +92,6 @@ class AIModelManager:
             self.model_reset_tasks.pop(model, None)
         elapsed = time.time() - start_time
         logging.info(f"Лимиты всех моделей сброшены через {elapsed:.2f} секунд")
-        self.model_reset_tasks.pop("reset_all", None)
 
     def get_next_gemini_model(self):
         """Возвращает первую доступную Gemini-модель или None"""
@@ -124,12 +101,8 @@ class AIModelManager:
                 return model
         return None
 
-    async def query_api_async(self, user_message: str, update: Optional[Update] = None) -> str:
-        # Сохраняем update для логов
-        self.current_update = update
-        telegram_handler.set_update(update)
-
-        # Логируем текущий статус моделей
+    async def query_api_async(self, user_message: str) -> str:
+        # Логируем текущий статус моделей перед запросом
         logging.debug(f"Статус моделей перед запросом: { {m.name: self.model_limits[m] for m in AIModelType} }")
 
         # Если текущая модель — Mistral, проверяем доступность Gemini
@@ -175,7 +148,7 @@ class AIModelManager:
 
                 logging.info(f"Переключились на модель {self.current_model.name}")
                 switch_message = f"Переключились на модель: {self.current_model.name}\n"
-                return switch_message + await self.query_api_async(user_message, update)
+                return switch_message + await self.query_api_async(user_message)
 
             elif e.response.status_code == 400:
                 logging.warning(f"Ошибка 400 для модели {self.current_model.name}, переключаемся на Mistral")
@@ -186,14 +159,9 @@ class AIModelManager:
                 if "reset_all" not in self.model_reset_tasks:
                     self.model_reset_tasks["reset_all"] = asyncio.create_task(self.reset_all_models())
                 switch_message = f"Переключились на модель: {self.current_model.name}\n"
-                return switch_message + await self.query_api_async(user_message, update)
+                return switch_message + await self.query_api_async(user_message)
 
             return switch_message + f"Ошибка API: {str(e)}"
 
         except Exception as e:
             return switch_message + f"Ошибка при запросе к API: {str(e)}"
-
-        finally:
-            # Очищаем update после запроса
-            self.current_update = None
-            telegram_handler.set_update(None)

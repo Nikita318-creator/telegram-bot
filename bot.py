@@ -1,7 +1,6 @@
 import os
 import asyncio
 import time
-import logging
 from collections import defaultdict
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -12,13 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from model_manager import AIModelManager, AIModelType, TelegramLogHandler
-
-# Настройка логирования
-if os.getenv("DEBUG_TO_USER", "0") == "1":
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-else:
-    logging.basicConfig(filename='bot_analytics.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+from model_manager import AIModelManager, AIModelType
 
 ai_model_manager = AIModelManager()
 
@@ -31,27 +24,20 @@ async def process_api_queue(worker_id):
     while True:
         user_id, user_text, update = await api_queue.get()
         try:
-            print(f"[Worker {worker_id}] Processing request from {user_id}")
             start = time.time()
-            # Передаём update в query_api_async
-            response = await ai_model_manager.query_api_async(user_text, update)
+            response = await ai_model_manager.query_api_async(user_text)
             elapsed = time.time() - start
-            print(f"[Worker {worker_id}] Response in {elapsed:.2f}s")
             await update.message.reply_text(response)
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {str(e)}")
         finally:
             api_queue.task_done()
 
-async def monitor_queue():
-    while True:
-        print(f"[Queue Monitor] Queue size: {api_queue.qsize()}")
-        await asyncio.sleep(10)
-
 async def start_queue_processing(application: ContextTypes.DEFAULT_TYPE):
-    # Запускаем один воркер
-    asyncio.create_task(process_api_queue(0))
-    asyncio.create_task(monitor_queue())
+    # Запускаем один воркер, так как очередь не ограничена
+    WORKER_COUNT = 5
+    for i in range(WORKER_COUNT):
+        asyncio.create_task(process_api_queue(i))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Help"]]
