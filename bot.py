@@ -85,7 +85,6 @@ def query_gemini_api_sync(prompt: str, api_key: str) -> str:
 # Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    await update.message.reply_text(user_text) # del
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         await update.message.reply_text("API ключ Gemini не настроен.")
@@ -94,7 +93,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.chat.send_action(action="typing")
 
     response = await asyncio.to_thread(query_gemini_api_sync, user_text, api_key)
-    await update.message.reply_text(api_key) # del
 
     await update.message.reply_text(response)
 
