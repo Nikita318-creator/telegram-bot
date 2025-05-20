@@ -11,6 +11,10 @@ from telegram.ext import (
     filters,
 )
 from telegram import Update, ReplyKeyboardMarkup
+from model_manager import AIModelManager, AIModelType
+
+# Инициализация менеджера моделей
+ai_model_manager = AIModelManager()
 
 # Команда /start с кнопкой Help
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -18,6 +22,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
         "Yo! I'm alive.", reply_markup=reply_markup
+    )
+
+# Команда /models для отображения текущей модели и статуса лимитов
+async def models(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    status = "\n".join(
+        f"{model.name}: {'Доступна' if ai_model_manager.model_limits[model] else 'Лимит исчерпан'}"
+        for model in ai_model_manager.model_limits
+    )
+    await update.message.reply_text(
+        f"Текущая модель: {ai_model_manager.current_model.name}\nСтатус моделей:\n{status}"
     )
 
 # Обработка кнопки Help — теперь с inline-кнопками
@@ -40,10 +54,10 @@ async def handle_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Обработка inline-кнопок Help
 async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()  # чтобы Telegram не показывал загрузку бесконечно
+    await query.answer()
 
     if query.data == "change_model":
-        await query.edit_message_text("🔄 Здесь будет выбор модели: Gemini / GPT / Pro (ещё не подключено)")
+        await query.edit_message_text("🔄 Здесь будет выбор модели: Gemini / Mistral / Pro (ещё не подключено)")
     elif query.data == "other_bots":
         await query.edit_message_text("🤖 Здесь появятся ссылки на других твоих ботов")
     elif query.data == "how_to_use":
@@ -51,49 +65,16 @@ async def handle_inline_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await query.edit_message_text("Что-то пошло не так 😕")
 
-# Синхронный запрос к Gemini API через requests
-def query_gemini_api_sync(prompt: str, api_key: str) -> str:
-    url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
-    headers = {
-        "x-goog-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-    json_data = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": prompt
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 256
-        }
-    }
-
-    try:
-        resp = requests.post(url, headers=headers, json=json_data, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Нет ответа от Gemini")
-    except Exception as e:
-        return f"Ошибка при запросе к Gemini API: {e}"
-
-# Асинхронный хендлер сообщений — запускает sync функцию в отдельном потоке
+# Асинхронный хендлер сообщений
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        await update.message.reply_text("API ключ Gemini не настроен.")
+    if not any(ai_model_manager.get_api_key(model) for model in ai_model_manager.model_limits):
+        await update.message.reply_text("API ключи не настроены.")
         return
 
     await update.message.chat.send_action(action="typing")
 
-    response = await asyncio.to_thread(query_gemini_api_sync, user_text, api_key)
-
+    response = await asyncio.to_thread(ai_model_manager.query_api_sync, user_text)
     await update.message.reply_text(response)
 
 def main():
@@ -104,6 +85,7 @@ def main():
     app = ApplicationBuilder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("models", models))  # Регистрация команды /models
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Help$"), handle_help_button))
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"), handle_user_message))
