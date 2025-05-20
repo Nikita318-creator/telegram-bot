@@ -1,22 +1,21 @@
 import os
-import requests
 import asyncio
 import logging
 from enum import Enum
-from typing import Optional, Dict
+from typing import Dict
 import httpx
 
 # Настройка логирования
-logging.basicConfig(filename='bot_analytics.log', level=logging.INFO)
+logging.basicConfig(filename='bot_analytics.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Перечисление моделей
+# Перечисление моделей (порядок важен для перебора)
 class AIModelType(Enum):
-    MISTRAL = "mistral"
-    GEMINI = "gemini"
-    GEMINI_15_FLASH_B = "gemini_15_flash_b"
     GEMINI_15_PRO = "gemini_15_pro"
     GEMINI_2_FLASH = "gemini_2_flash"
     GEMINI_2_FLASH_LIGHT = "gemini_2_flash_light"
+    GEMINI_15_FLASH_B = "gemini_15_flash_b"
+    GEMINI = "gemini"
+    MISTRAL = "mistral"
 
     @property
     def url(self) -> str:
@@ -50,6 +49,7 @@ class AIModelManager:
             for model in AIModelType
         }
         self.model_reset_delays = {model: 60.0 for model in AIModelType}
+        self.model_reset_tasks = {}  # Для отслеживания задач сброса
 
     def get_api_key(self, model: AIModelType) -> str:
         return self.api_keys.get(model, "")
@@ -62,53 +62,52 @@ class AIModelManager:
             headers["x-goog-api-key"] = self.get_api_key(model)
         return headers
 
-    def get_request_body(self, model: AIModelType, user_message: str, system_prompt: str = "") -> Dict:
+    def get_request_body(self, model: AIModelType, user_message: str) -> Dict:
         if model == AIModelType.MISTRAL:
             return {
                 "model": model.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
+                "messages": [{"role": "user", "content": user_message}],
                 "temperature": 0.7,
                 "max_tokens": 1024
             }
-        else:
-            combined_prompt = user_message if not system_prompt else f"{system_prompt}\n\n{user_message}"
-            return {
-                "contents": [
-                    {
-                        "parts": [{"text": combined_prompt}],
-                        "role": "user"
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 1024
-                }
-            }
+        return {
+            "contents": [{"parts": [{"text": user_message}], "role": "user"}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+        }
 
     async def reset_model_limit(self, model: AIModelType):
         delay = self.model_reset_delays.get(model, 60.0)
+        start_time = time.time()
         await asyncio.sleep(delay)
         self.model_limits[model] = True
-        logging.info(f"Лимит для модели {model.name} сброшен")
+        elapsed = time.time() - start_time
+        logging.info(f"Лимит для модели {model.name} сброшен через {elapsed:.2f} секунд")
+        self.model_reset_tasks.pop(model, None)  # Удаляем задачу после выполнения
 
     async def reset_all_models(self):
+        start_time = time.time()
         await asyncio.sleep(60.0)
         for model in self.model_limits:
             self.model_limits[model] = True
-        logging.info("Лимиты всех моделей сброшены")
+            self.model_reset_tasks.pop(model, None)
+        elapsed = time.time() - start_time
+        logging.info(f"Лимиты всех моделей сброшены через {elapsed:.2f} секунд")
 
-    def check_gemini_availability(self):
-        for model in self.model_limits:
-            if model != AIModelType.MISTRAL and self.model_limits[model]:
-                return AIModelType.GEMINI_2_FLASH_LIGHT
+    def get_next_gemini_model(self):
+        """Возвращает первую доступную Gemini-модель или None"""
+        gemini_models = [m for m in AIModelType if m != AIModelType.MISTRAL]
+        for model in gemini_models:
+            if self.model_limits[model]:
+                return model
         return None
 
-    async def query_api_async(self, user_message: str, system_prompt: str = "") -> str:
+    async def query_api_async(self, user_message: str) -> str:
+        # Логируем текущий статус моделей перед запросом
+        logging.debug(f"Статус моделей перед запросом: { {m.name: self.model_limits[m] for m in AIModelType} }")
+
+        # Если текущая модель — Mistral, проверяем доступность Gemini
         if self.current_model == AIModelType.MISTRAL:
-            gemini_model = self.check_gemini_availability()
+            gemini_model = self.get_next_gemini_model()
             if gemini_model:
                 self.current_model = gemini_model
                 logging.info(f"Переключились обратно на модель {self.current_model.name}")
@@ -120,7 +119,7 @@ class AIModelManager:
 
         url = self.current_model.url
         headers = self.get_headers(self.current_model)
-        body = self.get_request_body(self.current_model, user_message, system_prompt)
+        body = self.get_request_body(self.current_model, user_message)
 
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -130,22 +129,26 @@ class AIModelManager:
 
             if self.current_model == AIModelType.MISTRAL:
                 return switch_message + data.get("choices", [{}])[0].get("message", {}).get("content", "Нет ответа от Mistral")
-            else:
-                return switch_message + data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Нет ответа от Gemini")
+            return switch_message + data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "Нет ответа от Gemini")
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logging.warning(f"Модель {self.current_model.name} исчерпала лимиты")
                 self.model_limits[self.current_model] = False
-                asyncio.create_task(self.reset_model_limit(self.current_model))
+                if self.current_model not in self.model_reset_tasks:
+                    self.model_reset_tasks[self.current_model] = asyncio.create_task(self.reset_model_limit(self.current_model))
 
-                self.current_model = next(
-                    (model for model, available in self.model_limits.items() if available),
-                    AIModelType.MISTRAL
-                )
+                # Пробуем следующую Gemini-модель
+                next_model = self.get_next_gemini_model()
+                if next_model:
+                    self.current_model = next_model
+                else:
+                    self.current_model = AIModelType.MISTRAL
+                    self.model_limits[AIModelType.MISTRAL] = True
+
                 logging.info(f"Переключились на модель {self.current_model.name}")
                 switch_message = f"Переключились на модель: {self.current_model.name}\n"
-                return switch_message + await self.query_api_async(user_message, system_prompt)
+                return switch_message + await self.query_api_async(user_message)
 
             elif e.response.status_code == 400:
                 logging.warning(f"Ошибка 400 для модели {self.current_model.name}, переключаемся на Mistral")
@@ -153,12 +156,12 @@ class AIModelManager:
                     self.model_limits[model] = False
                 self.current_model = AIModelType.MISTRAL
                 self.model_limits[AIModelType.MISTRAL] = True
-                asyncio.create_task(self.reset_all_models())
+                if "reset_all" not in self.model_reset_tasks:
+                    self.model_reset_tasks["reset_all"] = asyncio.create_task(self.reset_all_models())
                 switch_message = f"Переключились на модель: {self.current_model.name}\n"
-                return switch_message + await self.query_api_async(user_message, system_prompt)
-            else:
-                return switch_message + f"Ошибка API: {str(e)}"
+                return switch_message + await self.query_api_async(user_message)
+
+            return switch_message + f"Ошибка API: {str(e)}"
 
         except Exception as e:
             return switch_message + f"Ошибка при запросе к API: {str(e)}"
-

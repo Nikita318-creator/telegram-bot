@@ -18,10 +18,7 @@ ai_model_manager = AIModelManager()
 RATE_LIMIT_SECONDS = 1
 user_last_message_time = defaultdict(lambda: 0)
 
-MAX_CONCURRENT_API_CALLS = 10
-MAX_QUEUE_SIZE = 200
-
-api_queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
+api_queue = asyncio.Queue()
 
 async def process_api_queue(worker_id):
     while True:
@@ -29,7 +26,7 @@ async def process_api_queue(worker_id):
         try:
             print(f"[Worker {worker_id}] Processing request from {user_id}")
             start = time.time()
-            response = await ai_model_manager.query_api_async(user_text)  # ← async вариант
+            response = await ai_model_manager.query_api_async(user_text)
             elapsed = time.time() - start
             print(f"[Worker {worker_id}] Response in {elapsed:.2f}s")
             await update.message.reply_text(response)
@@ -44,23 +41,14 @@ async def monitor_queue():
         await asyncio.sleep(10)
 
 async def start_queue_processing(application: ContextTypes.DEFAULT_TYPE):
-    for i in range(MAX_CONCURRENT_API_CALLS):
-        asyncio.create_task(process_api_queue(i))
+    # Запускаем один воркер, так как очередь не ограничена
+    asyncio.create_task(process_api_queue(0))
     asyncio.create_task(monitor_queue())
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Help"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text("Yo! I'm alive.", reply_markup=reply_markup)
-
-async def models(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    status = "\n".join(
-        f"{model.name}: {'Доступна' if ai_model_manager.model_limits[model] else 'Лимит исчерпан'}"
-        for model in ai_model_manager.model_limits
-    )
-    await update.message.reply_text(
-        f"Текущая модель: {ai_model_manager.current_model.name}\nСтатус моделей:\n{status}"
-    )
 
 async def handle_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
@@ -99,10 +87,6 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("API ключи не настроены.")
         return
 
-    if api_queue.full():
-        await update.message.reply_text("Сервер на пределе, подожди чуть-чуть 😰")
-        return
-
     await update.message.chat.send_action(action="typing")
     await api_queue.put((user_id, user_text, update))
 
@@ -114,7 +98,6 @@ def main():
     app = ApplicationBuilder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("models", models))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^Help$"), handle_help_button))
     app.add_handler(CallbackQueryHandler(handle_inline_buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.Regex("(?i)^help$"), handle_user_message))
